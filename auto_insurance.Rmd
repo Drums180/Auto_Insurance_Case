@@ -1,0 +1,818 @@
+---
+title: "Automobile Insurance Models"
+author: "David Dominguez - A01570975"
+date: "2024-03-01"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+    code_download: TRUE
+    theme: cosmo
+---
+
+# Introducción
+
+## Lecturas Sugeridas:
+> Supervised Machine Learning: Classification and Regression
+https://medium.com/@nimrashahzadisa064/supervised-machine-learning-classification-and-
+regression-c145129225f8
+
+> What is Supervised Learning?
+https://www.ibm.com/topics/supervised-learning
+
+>n A Beginner’s Guide to Supervised Machine Learning Algorithms
+https://towardsdatascience.com/a-beginners-guide-to-supervised-machine-learning-algorithms-
+6e7cd9f177d5
+
+
+# Teoría de Modelos y Algoritmos
+Brevemente responder con tus propias palabras 2 de las siguientes 3 preguntas:
+- i) ¿Qué es Supervised Machine Learning y cuáles son algunas de sus aplicaciones en Inteligencia
+de Negocios?
+
+- ii) ¿Cuáles son los principales algoritmos de Supervised Machine Learning? Brevemente describir
+con tus propias palarbas 5 – 7 de los principales algoritmos de Supervised Machine Learning.
+
+- iii) ¿Qué es la R2 Ajustada? ¿Qué es la métrica RMSE? ¿Cuál es la diferencia entre la R2 Ajustada
+y la métrica RMSE?
+
+# Librerías Necesarias
+```{r message=FALSE, warning=FALSE}
+# Manipulación y Visualización de Datos
+library(ggplot2)      # Sistema para crear gráficos
+library(DataExplorer) # Facilita la exploración de datos
+library(naniar)       # Facilita la visualización de valores faltantes y la examinación de imputaciones
+library(dlookr)       # Herramientas para diagnóstico de datos, exploración y transformación
+library(RColorBrewer) # Ofrece varias paletas de colores
+library(foreign)      # Lee datos almacenados por diversas plataformas
+
+# Visualización y Manipulación de Datos Espaciales
+library(sf)           # Una forma estandarizada de codificar datos vectoriales espaciales
+library(mapview)      # Crea visualizaciones interactivas de datos espaciales rápidamente
+library(tmap)         # Para dibujar mapas temáticos
+
+# Modelado Predictivo
+library(regclass)     # Herramientas básicas para visualizar, interpretar y construir modelos de regresión
+library(mctest)       # Diagnóstico de multicolinealidad
+library(lmtest)       # Pruebas para modelos de regresión lineal
+library(spdep)        # Funciones para crear objetos de matriz de pesos espaciales
+library(spData)       # Diversos conjuntos de datos espaciales
+library(spatialreg)   # Funciones de estimación para modelos espaciales
+library(caret)        # Funciones para simplificar el proceso de entrenamiento de modelos
+library(e1071)        # Variedad de funciones para análisis
+library(SparseM)      # Funcionalidad básica para álgebra lineal con matrices dispersas
+library(Metrics)      # Implementación de métricas de evaluación comúnmente usadas en aprendizaje supervisado
+library(tidyr)
+library(readr)
+library(randomForest) # Basado en un bosque de árboles usando entradas aleatorias
+library(jtools)       # Herramientas para entender y compartir resultados de análisis de regresión
+library(xgboost)      # Incluye solucionadores de modelos lineales eficientes y algoritmos de aprendizaje de árboles
+library(DiagrammeR)   # Construye estructuras de grafos/redes
+library(effects)      # Muestra gráfica y tabular de efectos, como interacciones, para modelos estadísticos
+library(shinyjs)      # Funciones de JavaScript para aplicaciones Shiny
+library(sp)           # Clases y métodos para datos espaciales
+library(geoR)         # Análisis geostadístico
+library(gstat)        # Modelado geostadístico, predicción y simulación
+library(corrplot)
+library(tigris)
+library(car)
+library(lmtest)
+library(neuralnet)
+library(MASS) 
+library(dplyr)        # Herramienta rápida y consistente para trabajar con objetos similares a data frames
+```
+
+
+# Obtención de Data
+```{r}
+automoble_insurance_claims <- read_csv("automoble_insurance_claims.csv")
+head(automoble_insurance_claims)
+```
+
+# Analisis Exploratorio de Datos
+Desarrollar Análisis Exploratorio de los Datos (EDA) que incluye los siguientes elementos:
+## a. Identificación de NA’s
+```{r}
+# Cambia "?" por NA en todo el dataframe
+df_aic <- data.frame(lapply(automoble_insurance_claims, function(x) {
+  if (is.factor(x)) x <- as.character(x)
+  x[x == "?"] <- NA
+  if (is.character(x)) x <- factor(x)
+  return(x)
+}))
+
+# Cuenta la cantidad de NA en cada columna
+na_count <- sapply(df_aic, function(x) sum(is.na(x)))
+
+# Imprime el conteo de NA de manera estética
+cat("Conteo de NA por columna en 'automoble_insurance_claims':\n")
+for (columna in names(na_count)) {
+  cat(columna, ": ", na_count[columna], "\n")
+}
+```
+
+## b. Reemplazo de NA’s
+```{r}
+# Definir rangos para 'injury_claim'
+df_aic$injury_claim_range <- cut(df_aic$injury_claim, breaks = quantile(df_aic$injury_claim, probs = seq(0, 1, by = 0.25), na.rm = TRUE), include.lowest = TRUE)
+
+# Función para aplicar operaciones a cada grupo, ajustada para trabajar con rangos de 'injury_claim'
+apply_operations_per_group <- function(df) {
+  for (col in c("police_report_available", "property_damage", "collision_type")) {
+    moda <- names(sort(table(df[[col]]), decreasing = TRUE))[1]
+    df[[col]][is.na(df[[col]])] <- moda
+  }
+
+  return(df)
+}
+
+# Segmentar por 'injury_claim_range' y aplicar la función definida
+df_aic <- df_aic %>%
+  group_by(injury_claim_range) %>%
+  group_modify(~apply_operations_per_group(.x))
+
+# Opcional: Puedes remover la columna 'injury_claim_range' después de la imputación si ya no la necesitas
+df_aic$injury_claim_range <- NULL
+df_aic$X_c39 <- NULL
+
+na_count <- sapply(df_aic, function(x) sum(is.na(x)))
+cat("Conteo de NA por columna en 'automoble_insurance_claims':\n")
+for (columna in names(na_count)) {
+  cat(columna, ": ", na_count[columna], "\n")
+}
+```
+
+## c. Medidas Descriptivas
+```{r}
+summary(df_aic)
+```
+## d. Medidas de Dispersión
+```{r}
+medidas_dispersion <- data.frame(Variable = character(), Desviacion = double(), Varianza = double(), Rango = double(), IQR = double(), stringsAsFactors = FALSE)
+
+for (nombre in names(df_aic)) {
+  if (is.numeric(df_aic[[nombre]])) {
+    # Calculo de medidas de dispersión
+    desviacion <- formatC(sd(df_aic[[nombre]], na.rm = TRUE), format = "f", digits = 1)
+    varianza <- formatC(var(df_aic[[nombre]], na.rm = TRUE), format = "f", digits = 1)
+    rango <- formatC(max(df_aic[[nombre]], na.rm = TRUE) - min(df_aic[[nombre]], na.rm = TRUE), format = "f", digits = 1)
+    iqr <- formatC(IQR(df_aic[[nombre]], na.rm = TRUE), format = "f", digits = 1)
+    
+    # Notación cientifica a max 2 decimales
+    ajustarNotacion <- function(x) {
+      numero <- as.numeric(x)
+      if (abs(numero) > 1e+10) {
+        return(formatC(numero, format = "e", digits = 1))
+      } else {
+        return(x)
+      }
+    }
+    
+    desviacion <- ajustarNotacion(desviacion)
+    varianza <- ajustarNotacion(varianza)
+    rango <- ajustarNotacion(rango)
+    iqr <- ajustarNotacion(iqr)
+    
+    # Resultados a df
+    medidas_dispersion <- rbind(medidas_dispersion, data.frame(Variable = nombre, Desviacion = desviacion, Varianza = varianza, Rango = rango, IQR = iqr, stringsAsFactors = FALSE))
+  }
+}
+
+print(medidas_dispersion)
+```
+
+## e. Transformación y Adicción de Variables
+
+### Columna de tipo de auto
+```{r}
+# Cargar datos de tipos de vehículos
+car_types <- read.csv("car_types.csv")
+
+# Hacer merge con df_aic para añadir la columna vehicle_type
+df_aic <- merge(df_aic, car_types, by = "auto_model", all.x = TRUE)
+```
+
+### Transformar variables categóricas binarias
+```{r}
+# Transformar 'police_report_available' de YES/NO a 1/0
+df_aic$police_report_available <- ifelse(df_aic$police_report_available == "YES", 1, 0)
+
+# Transformar 'property_damage' de YES/NO a 1/0
+df_aic$property_damage <- ifelse(df_aic$property_damage == "YES", 1, 0)
+
+# Transformar 'fraud_reported' de Y/N a 1/0
+df_aic$fraud_reported <- ifelse(df_aic$fraud_reported == "Y", 1, 0)
+
+# Transformar 'insured_sex' de MALE/FEMALE a 1/0
+df_aic$insured_sex <- ifelse(df_aic$insured_sex == "MALE", 1, 0)
+```
+
+### Dividir data de tiempo
+```{r}
+df_aic <- df_aic %>%
+  separate(incident_date, into = c("incident_day", "incident_month", "incident_year"), sep = "/")
+```
+
+### Datos Geográficos de asegurado
+```{r message=FALSE, warning=FALSE}
+# Base de datos geografícos por zip
+uszips_data <- read_csv("uszips.csv")
+
+# Preparación inicial
+df_aic$insured_zip <- as.character(df_aic$insured_zip)
+uszips_data$zip <- as.character(uszips_data$zip)
+df_aic$modified_zip <- substr(df_aic$insured_zip, 1, nchar(df_aic$insured_zip) - 1)
+
+# Añadir columnas vacías para los datos de uszips
+df_aic$insured_lat <- NA
+df_aic$insured_lng <- NA
+df_aic$insured_county_name <- NA
+df_aic$insured_city <- NA
+
+# Función para intentar encontrar coincidencias ajustando el código postal
+try_adjust_zip_and_merge <- function(row, uszips_data) {
+  base_zip <- row$modified_zip
+  for (i in c(-60:60)) {
+    if (i == 0) next # Omitir el cero
+    adjusted_zip <- as.character(as.numeric(base_zip) + i)
+    
+    # Buscar coincidencia en uszips_data
+    match <- uszips_data[uszips_data$zip == adjusted_zip, ]
+    if (nrow(match) > 0) {
+      row$insured_lat <- match$lat[1]
+      row$insured_lng <- match$lng[1]
+      row$insured_county_name <- match$county_name[1]
+      row$insured_city <- match$city[1]
+      break # Salir del bucle si se encuentra una coincidencia
+    }
+  }
+  return(row)
+}
+
+# Aplicar la función a cada fila de df_aic
+for (i in 1:nrow(df_aic)) {
+  df_aic[i, ] <- try_adjust_zip_and_merge(df_aic[i, ], uszips_data)
+}
+
+# Limpiar el dataframe final
+df_aic$modified_zip <- NULL
+```
+
+## f. Creación de Dataframe Espacial
+```{r}
+# Opciones para tigris
+options(tigris_use_cache = TRUE, tigris_class = "sf")
+
+# Obtener datos geográficos para condados en Ohio, Illinois, e Indiana
+states_of_interest <- c("Ohio", "Illinois", "Indiana")
+areas_sf <- counties(state = states_of_interest, cb = TRUE)
+
+# Función para calcular la moda
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# Crear un nuevo dataframe con promedios agrupados por insured_county_name
+df_aic_med <- df_aic %>%
+  group_by(insured_county_name) %>%
+  summarise(
+    med_total_claim_amount = median(total_claim_amount, na.rm = TRUE),
+    med_policy_annual_premium = median(policy_annual_premium, na.rm = TRUE),
+    med_umbrella_limit = median(umbrella_limit, na.rm = TRUE),
+    med_vehicle_claim = median(vehicle_claim, na.rm = TRUE),
+    med_injury_claim = median(injury_claim + 0.01, na.rm = TRUE),
+    med_number_of_vehicles_involved = median(number_of_vehicles_involved, na.rm = TRUE),
+    med_incident_hour_of_the_day = median(incident_hour_of_the_day + 0.01, na.rm = TRUE), 
+    # Variables categoricas
+    mode_police_report_available = Mode(police_report_available),
+    mode_property_damage = Mode(property_damage)
+  )
+
+# Realizar el join entre areas_sf y df_aic_med
+df_aic_sf <- areas_sf %>%
+  left_join(df_aic_med, by = c("NAME" = "insured_county_name"))
+
+# Configurar tmap para visualización estática
+tmap_mode("plot")
+```
+
+
+## g. Identificación de Patrones 
+y/o tendencias en los datos mediante el uso de gráficos incluyendo
+bar plots, line plots, pie plots, histogramas, matriz de correlación, box plot, scatter plot, qq-
+plot, etc Mostrar al menos 4 – 6 gráficos.
+
+### Distribución de Variables Cuantitativas
+```{r}
+# Identificar las columnas numéricas en df_aic
+columnas_numericas <- sapply(df_aic, is.numeric)
+
+# Crear histogramas para cada columna numérica
+for (nombre_columna in names(columnas_numericas[columnas_numericas])) {
+  p <- ggplot(df_aic, aes_string(x = nombre_columna)) +
+    geom_histogram(bins = 30, fill = "blue", color = "black") + # Ajusta los bins según necesites
+    theme_minimal() +
+    labs(title = paste("Histogram of", nombre_columna),
+         x = nombre_columna,
+         y = "Frequency")
+  
+  print(p) # Mostrar el histograma
+}
+```
+
+### Boxplot de Reclamo Total vs Tipo de Carro
+```{r}
+ggplot(df_aic, aes(x = type, y = total_claim_amount, fill = type)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Diagrama de caja del Monto Total de la Reclamación por Tipo",
+       x = "Tipo de Auto",
+       y = "Monto Total de Reclamo") + 
+  scale_fill_brewer(palette = "Pastel1")
+```
+
+### Histograma del Monto Total del Reclamo con Indicador de Daños a la Propiedad
+```{r message=FALSE, warning=FALSE}
+ggplot(df_aic, aes(x = total_claim_amount, fill = as.factor(property_damage))) +
+  geom_histogram(position = "dodge", binwidth = 5000) + 
+  scale_fill_manual(values = c("0" = "navy", "1" = "lightblue")) +
+  labs(title = "Histograma del Monto Total del Reclamo con Indicador de Daños a la Propiedad",
+       x = "Monto Total de Reclamo",
+       y = "Numero de casos",
+       fill = "Daños a la Propiedad") +
+  theme_minimal()
+```
+
+
+
+### Gráfico de Dispersión por Reclamo Total vs Reclamo por Accidente
+```{r}
+# Crear scatter plot con ggplot2 utilizando una escala de color de azul claro a azul marino por age
+ggplot(df_aic, aes(x = total_claim_amount, y = injury_claim, color = age)) +
+  geom_point() + # Añadir puntos al scatter plot
+  theme_minimal() + # Aplicar un tema minimalista
+  scale_color_gradient(low = "lightblue", high = "navy") + # Gradiente de color de azul claro a azul marino
+  labs(title = "Monto Total del Reclamo frente al Reclamo por Accidente por Edad",
+       x = "Monto total del Reclamo",
+       y = "Reclamación por Accidente",
+       color = "Edad") # Personalizar las etiquetas
+```
+
+### Box Plot for Number of Vehicles Involved
+```{r}
+ggplot(df_aic, aes(x = as.factor(number_of_vehicles_involved), y = total_claim_amount, fill = as.factor(number_of_vehicles_involved))) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Monto Total del Reclamo por Número de Vehículos Involucrados",
+       x = "Numero de Vehículos Involucrados",
+       y = "Monto Total de Reclamo") +
+  scale_x_discrete(name = "Numero de Vehículos Involucrados") +
+  scale_fill_brewer(palette = "Pastel1", name = "Numero de Vehículos Involucrados") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom")  
+```
+
+
+### Matriz de correlación
+```{r}
+# Crear df_corrplot con solo variables numéricas de df_aic
+df_corrplot <- df_aic[sapply(df_aic, is.numeric)]
+
+# Calcular la matriz de correlación
+matriz_corr <- cor(df_corrplot, use = "complete.obs") # 'use' maneja los valores NA
+
+# Generar el gráfico de correlación
+corrplot(matriz_corr, order = "AOE", tl.cex = 0.7, tl.col = "black") # Ajusta los parámetros según necesidad
+```
+
+### Monto de Accidente y Poliza Annual por Condado
+```{r}
+# Mapa para Avg Total Claim Amount
+total_claim_map <- tm_shape(df_aic_sf) + 
+  tm_fill("med_total_claim_amount", palette = "Blues", style = "quantile", title = "Monto Total Promedio del Reclamo") +
+  tm_borders(alpha = .4) + 
+  tm_layout(legend.text.size = 0.8, legend.title.size = 1.1, frame = FALSE)
+
+# Mapa para Avg Policy Annual Premium
+annual_premium_map <- tm_shape(df_aic_sf) + 
+  tm_fill("med_policy_annual_premium", palette = "BuPu", style = "quantile", title = "Prima Anual Promedio de la Póliza") +
+  tm_borders(alpha = .4) + 
+  tm_layout(legend.text.size = 0.8, legend.title.size = 1.1, frame = FALSE)
+
+# Arreglar mapas lado a lado
+tmap_arrange(total_claim_map, annual_premium_map, nrow = 1)
+```
+
+### Umbrella Limit per State
+```{r message=FALSE, warning=FALSE}
+# Ajusta estos valores según cómo estén representados los estados en tus datos
+states_codes <- c("Ohio" = "39", "Illinois" = "17", "Indiana" = "18")
+
+# Crear un mapa para cada estado
+for(state_name in names(states_codes)) {
+  state_code <- states_codes[state_name]
+  
+  # Filtrar df_aic_sf por estado actual en el bucle
+  state_data <- df_aic_sf %>% 
+    filter(STATEFP == state_code)  
+  
+  # Crear el mapa con la leyenda en la esquina superior derecha de la imagen
+  map <- tm_shape(state_data) + 
+    tm_polygons(col = "med_umbrella_limit", 
+                title = paste("Umbrella Limit in", state_name)) + 
+    tm_borders() +
+    tm_layout(
+      frame = FALSE,
+      title = paste(""),
+      legend.position = c("right", "top"),
+      legend.just = c(1, 1),  # Ajusta la leyenda para que el punto de referencia sea la esquina superior derecha
+      legend.outside = TRUE,  # Coloca la leyenda fuera del área del mapa
+      legend.outside.position = "right",  # Coloca la leyenda en el lado derecho fuera del área del mapa
+      outer.margins = c(0, 0, 0, 0),  # Ajusta si es necesario para los márgenes exteriores
+      legend.frame = TRUE
+    )
+  
+  # Imprimir el mapa
+  print(map)
+}
+```
+
+# Especificación Preferida
+A partir de los resultados de EDA describir la especificación del modelo de regresión lineal
+a estimar. Brevemente, describir cómo es el posible impacto de cada una de las variables
+explicativas sobre la principal variable de estudio.
+
+
+
+# Estimación y Modelado
+Estimación de cada uno de los siguientes modelos de Supervised Machine Learning
+(SML):
+## a. OLS Regresión
+### Modelo
+```{r}
+model_ols <- lm(total_claim_amount ~ police_report_available + property_damage + log(vehicle_claim) + log(injury_claim + 0.01) + number_of_vehicles_involved + incident_hour_of_the_day, data = df_aic)
+
+# Mostrar el resumen del modelo
+summary(model_ols)
+```
+
+### RMSE
+```{r}
+df_aic_test <- df_aic
+
+# Asegúrate de que las transformaciones se aplican correctamente
+df_aic_test$log_vehicle_claim <- log(abs(df_aic$vehicle_claim))
+df_aic_test$log_injury_claim_plus <- log(abs(df_aic$injury_claim + 0.01))
+
+# Ahora, ajusta el modelo con las variables transformadas correctamente
+model_ols <- lm(total_claim_amount ~ police_report_available + property_damage + log_vehicle_claim + log_injury_claim_plus + number_of_vehicles_involved + incident_hour_of_the_day, data = df_aic_test)
+
+# Calcula las predicciones
+predicciones <- predict(model_ols, df_aic_test)
+
+# Calcula los residuos y el RMSE como antes
+residuos <- df_aic_test$total_claim_amount - predicciones
+rmse <- sqrt(mean(residuos^2))
+
+print(rmse)
+```
+
+
+## b. SAR
+### Modelo
+```{r message=FALSE, warning=FALSE}
+df_aic_sf <- na.omit(df_aic_sf)
+df_aic_sp <- as(df_aic_sf, "Spatial")
+nb <- poly2nb(df_aic_sp)
+listw <- nb2listw(nb, style="W", zero.policy = TRUE)
+
+model_sar <- lagsarlm(med_total_claim_amount ~ mode_police_report_available + mode_property_damage +
+                      log(med_vehicle_claim + 0.01) + log(med_injury_claim + 0.01) +
+                      med_number_of_vehicles_involved + med_incident_hour_of_the_day,
+                      data = df_aic_sf, listw = listw, zero.policy = TRUE, method="eigen")
+
+# Mostrar el resumen del modelo
+summary(model_sar)
+```
+
+## c. SEM
+### Modelo
+```{r}
+model_sem <- errorsarlm(med_total_claim_amount ~ mode_police_report_available + mode_property_damage +
+                        log(med_vehicle_claim + 0.01) + log(med_injury_claim + 0.01) +
+                        med_number_of_vehicles_involved + med_incident_hour_of_the_day,
+                        data = df_aic_sf, listw = listw, zero.policy = TRUE, method="eigen")
+
+# Mostrar el resumen del modelo
+summary(model_sem)
+```
+
+## d. XGBoost Regresión
+### Modelo
+```{r}
+# Transformaciones Necesarias
+df_aic_transformed <- df_aic %>%
+  mutate(
+    log_vehicle_claim = log(vehicle_claim),
+    log_injury_claim = log(injury_claim + 0.01) 
+  ) 
+
+df_aic_transformed <- df_aic_transformed[c("total_claim_amount", "police_report_available", "property_damage", "log_vehicle_claim", "log_injury_claim", "number_of_vehicles_involved", "incident_hour_of_the_day")]
+
+
+set.seed(123)
+cv_data <- createDataPartition(y = df_aic_transformed$total_claim_amount, p = 0.7, list = FALSE)
+cv_train <- df_aic_transformed[cv_data, ]
+cv_test <- df_aic_transformed[-cv_data, ]
+
+# Preparación de Matrices
+train_x <- data.matrix(cv_train[, -1])
+train_y <- cv_train[, 1]
+test_x <- data.matrix(cv_test[, -1])
+test_y <- cv_test[, 1]
+
+# Dataframes de prueba y test
+xgb_train <- xgb.DMatrix(data = train_x, label = train_y)
+xgb_test <- xgb.DMatrix(data = test_x, label = test_y)
+
+# XGBoost regression model
+watchlist <- list(train = xgb_train, test = xgb_test)
+model_xgb <- xgb.train(data = xgb_train, objective = "reg:squarederror", max.depth = 3, watchlist = watchlist, nrounds = 70, eta = 0.1)
+
+# Estimar modelo final
+reg_xgb <- xgboost(data = xgb_train, objective = "reg:squarederror", max.depth = 3, nrounds = 59, verbose = 0)
+
+# Make predictions and calculate RMSE
+prediction_xgb_test <- predict(reg_xgb, xgb_test)
+RMSE_XGB <- sqrt(mean((prediction_xgb_test - test_y)^2))
+print(paste("RMSE XGBoost:", RMSE_XGB))
+
+# Ensure predictions and test labels are finite
+if(all(is.finite(prediction_xgb_test)) && all(is.finite(test_y))) {
+  # Diagnostic checks of regression residuals
+  xgb_reg_residuals <- test_y - prediction_xgb_test
+  
+  # Check if residuals contain only finite values before plotting
+  if(all(is.finite(xgb_reg_residuals))) {
+    plot(xgb_reg_residuals, xlab = "Predicted Values", ylab = "Residuals", main = "XGBoost Regression Residuals")
+    abline(h = 0, col = "red") # Ensure horizontal line at 0
+  } else {
+    cat("Residuals contain non-finite values; cannot plot.\n")
+  }
+} else {
+  cat("Predictions or test labels contain non-finite values; cannot calculate RMSE or plot residuals.\n")
+}
+
+# Plot the importance of variables
+importance_matrix <- xgb.importance(model = reg_xgb)
+xgb.plot.importance(importance_matrix)
+```
+
+### RMSE
+```{r}
+print(RMSE_XGB)
+```
+
+
+## e. Decision Trees
+### Modelo
+```{r message=FALSE, warning=FALSE}
+model_dt <- rpart(total_claim_amount ~ police_report_available + property_damage + 
+                  log(vehicle_claim) + log(injury_claim + 0.01) + 
+                  number_of_vehicles_involved + incident_hour_of_the_day, 
+                  data = df_aic, 
+                  method = "anova") # Usar "anova" para regresión
+
+# Mostrar el resumen del modelo
+summary(model_dt)
+
+plot(model_dt, uniform = TRUE, main = "Árbol de Decisión")
+text(model_dt, use.n = TRUE)
+```
+
+### RMSE
+```{r message=FALSE, warning=FALSE}
+# Ajuste del modelo, asegurándose de que las transformaciones están aplicadas correctamente
+df_aic$log_vehicle_claim <- log(df_aic$vehicle_claim)
+df_aic$log_injury_claim_plus <- log(df_aic$injury_claim + 0.01)
+
+model_dt <- rpart(total_claim_amount ~ police_report_available + property_damage + 
+                  log_vehicle_claim + log_injury_claim_plus + 
+                  number_of_vehicles_involved + incident_hour_of_the_day, 
+                  data = df_aic, 
+                  method = "anova")
+
+# Predicciones con el modelo de árbol de decisión, utilizando las mismas transformaciones
+predicciones_dt <- predict(model_dt, df_aic)
+
+# Calcular los residuos
+residuos_dt <- df_aic$total_claim_amount - predicciones_dt
+
+# Calcular el RMSE
+rmse_dt <- sqrt(mean(residuos_dt^2))
+
+# Imprimir el RMSE
+print(rmse_dt)
+```
+
+
+## f. Random Forest
+### Modelo
+```{r}
+model_rf <- randomForest(total_claim_amount ~ police_report_available + property_damage + vehicle_claim + injury_claim + number_of_vehicles_involved + incident_hour_of_the_day, data= df_aic, proximity=TRUE)
+
+# Mostrar el resumen del modelo
+print(model_rf)
+
+# Visualizar la importancia de las variables
+varImpPlot(model_rf)
+```
+### RMSE
+```{r}
+# Hacer predicciones con el modelo de Random Forest
+predicciones_rf <- predict(model_rf, df_aic)
+
+# Calcular los residuos
+residuos_rf <- df_aic$total_claim_amount - predicciones_rf
+
+# Calcular el RMSE
+rmse_rf <- sqrt(mean(residuos_rf^2))
+
+# Imprimir el RMSE
+print(rmse_rf)
+```
+
+## g. Neural Networks Regresión
+```{r message=FALSE, warning=FALSE}
+df_aic$vehicle_claim <- scale(df_aic$vehicle_claim)
+df_aic$injury_claim <- scale(df_aic$injury_claim)
+
+nn_model <- neuralnet(total_claim_amount ~ police_report_available + property_damage + 
+                      vehicle_claim + injury_claim + 
+                      number_of_vehicles_involved + incident_hour_of_the_day, 
+                      data = df_aic, 
+                      hidden = c(5, 3), 
+                      linear.output = TRUE,
+                      stepmax = 1000000) # Valor incrementado
+
+# Intenta visualizar nuevamente
+plot(nn_model)
+```
+
+
+# Pruebas de Diagnóstico
+Pruebas de Diagnóstico de los Resultados Obtenidos de la Estmación de Modelos de
+Regresión
+
+## a. Multicolinealidad
+```{r}
+vif_resultados <- vif(model_ols)
+
+# Mostrar los resultados del VIF
+print(vif_resultados)
+```
+## b. Heterocedasticidad
+```{r}
+bp_test_resultado <- bptest(model_ols)
+
+# Mostrar los resultados del test
+print(bp_test_resultado)
+```
+## c. Autocorrelación Serial
+NA
+
+## d. Autocorrelación Espacial
+```{r}
+residuos_sar <- residuals(model_sar)
+
+# Realizar el test de Moran para los residuos
+moran_test_resultado <- moran.test(residuos_sar, listw)
+
+# Mostrar los resultados del test de Moran
+print(moran_test_resultado)
+```
+
+## e. Normalidad de los Residuales
+```{r}
+residuos <- residuals(model_ols)
+
+# Realizar el test de Shapiro-Wilk para normalidad
+shapiro_test <- shapiro.test(residuos)
+
+# Mostrar los resultados del test
+print(shapiro_test)
+```
+> Nota: En caso de que las pruebas de diagnóstico identifiquen cualquiera de los anteriores a) –
+e) plantear una solución para mejorar la estimación de la especificiación del modelo.
+
+#### **Multicolinealidad**
+- Los resultados muestran que **no existe multicolinealidad** en el modelo, lo cual es una buena señal. Los valores de VIF para las variables **`police_report_available`**, **`property_damage`**, **`log(vehicle_claim)`**, **`log(injury_claim + 0.01)`**, **`number_of_vehicles_involved`**, e **`incident_hour_of_the_day`** están todos por debajo del umbral comúnmente aceptado de 5 o 10, indicando que no hay preocupaciones significativas de multicolinealidad entre estas variables.
+
+#### **Heteroscedasticidad**
+- Se identificó la presencia de **heteroscedasticidad** en el modelo a través del test de Breusch-Pagan, lo que sugiere que la varianza de los errores no es constante. Una posible solución para mitigar este problema es **transformar las variables dependientes utilizando logaritmos**, lo que puede ayudar a estabilizar la varianza a lo largo de los datos. Otra estrategia podría ser el uso de **técnicas de ponderación** o la aplicación de **modelos robustos** que sean menos sensibles a la heteroscedasticidad.
+
+#### **Ausencia de Necesidad de Contemplar Autocorrelación Serial**
+- Dado que la base de datos es de corte transversal y no utiliza series de tiempo, no es necesario considerar la **autocorrelación serial** en el análisis. Esto simplifica el análisis ya que la autocorrelación serial puede introducir sesgos significativos en los modelos de series de tiempo.
+
+#### **Autocorrelación Espacial**
+- Se exploró la **autocorrelación espacial** mediante modelos SEM y SAR, utilizando el test de Moran para evaluar el impacto espacial en los residuos. Los resultados indican que, a primera vista, no hay un impacto espacial significativo (**p-valor = 0.05327**), lo cual sugiere que la estructura espacial de los datos no influye de manera considerable en el modelo.
+
+#### **Normalidad de los Residuos**
+- El test de Shapiro-Wilk revela que los residuos del modelo **no se distribuyen normalmente** (**p-valor = 2.544e-10**). Esto podría ser problemático para ciertas inferencias estadísticas que asumen normalidad de los residuos. Como posibles soluciones, se podrían considerar **transformaciones de los datos** para mejorar la normalidad, el uso de **métodos no paramétricos**, o ajustar el modelo para manejar mejor las distribuciones de los errores no normales.
+
+# Evaluación y Selección de Modelo de Regresión
+
+## Comparación de RMSE
+Presentar los valores de la métrica RMSE de cada uno de los modelos estimados en 4) en un
+gráfico de barras.
+
+| Modelo         | RMSE       |
+|----------------|------------|
+| Random Forest  | 47558.14   |
+| Decision Tree  | 18211.22   |
+| XGBoost        | 3339.402   |
+| OLS            | 23931.76   |
+
+```{r}
+datos <- data.frame(
+  Modelo = c("Random Forest", "Decision Tree", "XGBoost", "OLS"),
+  RMSE = c(47558.14, 18211.22, 3339.402, 23931.76)
+)
+
+# Generar el gráfico de barras
+ggplot(datos, aes(x = Modelo, y = RMSE, fill = Modelo)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme_minimal() +
+  labs(title = "RMSE por Modelo",
+       x = "Modelo",
+       y = "RMSE") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Me decantaría por el modelo XGBoost por las siguientes razones concretas:
+
+- **Menor RMSE**: XGBoost lidera con el menor RMSE, señal de que sus predicciones suelen estar más cerca de los valores reales, un factor crítico para la confiabilidad en un modelo de predicción de reclamaciones.
+
+- **Habilidad para capturar complejidades**: Se destaca en descifrar interacciones entre variables que otros modelos podrían no captar tan eficientemente, lo que es clave en un contexto donde las relaciones causales pueden ser intrincadas.
+
+- **Regularización incorporada**: La regularización es una salvaguarda contra el sobreajuste. Esto significa que XGBoost no solo se ajusta bien a los datos con los que se entrena, sino que también mantiene su rendimiento en datos no vistos, lo cual es vital para aplicaciones prácticas.
+
+- **Flexibilidad en la configuración**: Ofrece una variedad de parámetros que pueden ajustarse para mejorar el rendimiento y adaptarse mejor a las características específicas del conjunto de datos.
+
+Dicho esto, es importante recordar que XGBoost puede sacrificar interpretabilidad por rendimiento; los modelos basados en árboles son a menudo menos transparentes que, por ejemplo, un modelo lineal. Por lo tanto, si la interpretación de los resultados es tan crucial como la precisión de la predicción, podríamos considerar un balance entre modelos más simples como OLS o modelos de efectos aleatorios y XGBoost.
+
+Además, aunque los modelos SAR y SEM no superaron a XGBoost en precisión, podrían ofrecer insights útiles sobre la estructura espacial de los datos, algo que XGBoost no captura de manera inherente. Por lo tanto, si la dimensión espacial es de interés, valdría la pena explorar estos modelos más a fondo o combinar sus fortalezas con las de XGBoost.
+
+# Analisis y Hallazgos
+Desarrollar una breve descripción de los 6 – 10 principales hallazgos de:
+## a. EDA
+
+1. **Tipo de Vehículo**: Los montos de reclamación varían según el tipo de vehículo. Los vehículos tipo SUV tienden a tener montos de reclamo más altos, como se muestra en el gráfico de caja.
+
+2. **Daños a la Propiedad**: Hay una clara distinción en los montos de reclamación cuando hay daños a la propiedad involucrados. Los reclamos con daños a la propiedad tienen generalmente montos más altos.
+
+3. **Relación con la Edad**: Existe una correlación entre la edad y el monto total del reclamo por accidente. A medida que aumenta la edad, también lo hace la tendencia en el monto del reclamo.
+
+4. **Número de Vehículos Involucrados**: El número de vehículos involucrados en un reclamo también afecta el monto. Los accidentes con más vehículos involucrados suelen tener montos de reclamo más altos.
+
+5. **Correlaciones**: Se observa una matriz de correlación que indica la relación entre diferentes variables. Por ejemplo, hay una correlación positiva entre el monto del reclamo del vehículo y el monto total del reclamo.
+
+6. **Distribución Geográfica**: Los mapas muestran diferencias geográficas en el monto promedio del reclamo y la prima anual promedio de la póliza por estado, así como los límites de cobertura de la póliza por paraguas en diferentes condados dentro de estados específicos.
+
+7. **Distribución del Monto Total del Reclamo**: La mayoría de los reclamos se concentran en montos más bajos, con una disminución gradual en la frecuencia a medida que aumenta el monto del reclamo, lo que sugiere que los reclamos de alto valor son menos comunes.
+
+## b. Modelo seleccionado:
+
+### i. ¿Cuáles son las variables que contribuyen a explicar los cambios de la principal
+variable de estudio?
+
+Las variables que tienen una contribución significativa al explicar los cambios en la variable de estudio principal, que es el `total_claim_amount` (monto total de la reclamación), son:
+
+- `log_vehicle_claim`: El logaritmo del monto reclamado por el vehículo.
+- `log_injury_claim`: El logaritmo del monto reclamado por lesiones personales.
+- `number_of_vehicles_involved`: El número de vehículos involucrados en el incidente.
+- `property_damage`: Si hubo daño a la propiedad.
+- `police_report_available`: Si está disponible un reporte policial.
+- `incident_hour_of_the_day`: La hora del día en que ocurrió el incidente.
+
+### ii. ¿Cómo es el impacto de dichas variables explicativas sobre la variable dependiente?
+
+El impacto de estas variables sobre la variable dependiente se observa de la siguiente manera:
+
+- Los montos de reclamo tanto para el vehículo como para lesiones personales, cuando se transforman al logaritmo, tienen una relación positiva y significativa con el monto total de la reclamación.
+- El incremento en el número de vehículos involucrados tiende a disminuir el monto total de la reclamación.
+- La presencia de daños a la propiedad y la disponibilidad de un reporte policial tienen efectos mixtos y no consistentemente significativos en los diferentes modelos.
+
+### iii. ¿Los resultados estimados del modelo seleccionado son similares a los otros modelos
+estimados? ¿Cuáles son las diferencias?
+
+Comparando los resultados del modelo seleccionado con otros modelos estimados, encontramos que:
+
+- El modelo OLS (Ordinary Least Squares) proporciona un `Multiple R-squared` de 0.8588, lo que indica una alta proporción de la varianza explicada por el modelo.
+- Los modelos SAR (Spatial Autoregressive) y SEM (Spatial Error Model) incluyen la autocorrelación espacial en los errores, lo que no parece mejorar significativamente el ajuste del modelo en comparación con el OLS estándar, basado en la similitud de los valores AIC.
+- Los modelos de aprendizaje automático, como XGBoost, Árbol de Decisión y Bosque Aleatorio (Random Forest), tienen diferentes métricas de rendimiento como RMSE, que varían en magnitud. El modelo XGBoost tiene un RMSE relativamente bajo en comparación con otros modelos, indicando un mejor rendimiento.
+- La Red Neuronal muestra una aproximación gráfica de cómo las variables de entrada se relacionan con la salida, pero no se proporciona una métrica de rendimiento específica para la comparación directa.
+
+Los resultados sugieren que los montos de reclamaciones del vehículo y las lesiones personales son factores significativos en la predicción del monto total de la reclamación, mientras que los otros factores tienen un impacto variable y a menudo no significativo. El modelo OLS parece tener un buen ajuste con los datos, aunque los modelos de aprendizaje automático, particularmente XGBoost, podrían ofrecer un rendimiento predictivo más robusto.
+
